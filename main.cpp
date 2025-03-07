@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <iostream>
+#include <lyra/lyra.hpp>
 
 using namespace std;
 
@@ -80,7 +81,6 @@ int combine_streams(const char *fileL, const char *fileH, const char *output_fil
     FILE *out_file = fopen(output_file, "wb");
     uint8_t data_out;
     for (uint32_t i = 0; i < size; i += bytesPerFile) {
-
         for (uint8_t j = 0; j < bytesPerFile; ++j) {
             data_out = dataH[i + j];
             fwrite(&data_out, 1, 1, out_file);
@@ -100,5 +100,43 @@ int combine_streams(const char *fileL, const char *fileH, const char *output_fil
 }
 
 int main(int argc, char *argv[]) {
-    return combine_streams("/data/Projects/BinaryInterleave/fileL.bin", "/data/Projects/BinaryInterleave/fileH.bin", "/data/Projects/BinaryInterleave/combined.bin", true, 32);
+    std::string fileL;
+    std::string fileH;
+    std::string output;
+    bool little_endian = true;
+    bool big_endian = false;
+    bool help = false;
+    int word = 16;
+    auto cli = lyra::cli();
+
+    cli.add_argument(lyra::help(help).description("Combine two files into one by interleaving bytes from both files"));
+    cli.add_argument(lyra::opt(big_endian).name("-b").name("--big-endian").help("Use big endian. Same a swapping fileL and fileH."));
+    cli.add_argument(lyra::opt(word, "size").name("-w").name("--word").help("Word size to build. 16, 32, 64"));
+    cli.add_argument(lyra::arg(fileL, "file low").required().help("File Low Path"));
+    cli.add_argument(lyra::arg(fileH, "file high").required().help("File High Path"));
+    cli.add_argument(lyra::arg(output, "output file").required().help("Output File Path"));
+
+    auto result = cli.parse({argc, argv});
+
+    if (!result) {
+        std::cout << cli << endl;
+        std::cerr << "Error in command line: " << result.message() << std::endl;
+
+        return 1;
+    }
+    if (help || !result) {
+        std::cout << cli << endl;
+
+        return 0;
+    }
+
+    little_endian = !big_endian;
+
+    cout << "File Low Path = " << fileL << endl;
+    cout << "File High Path = " << fileH << endl;
+    cout << "Output File Path = " << output << endl;
+    cout << "Use Little Endian = " << (little_endian ? "true" : "false") << endl;
+    cout << "Word Size = " << (int) word << endl;
+
+    return combine_streams(fileL.c_str(), fileH.c_str(), output.c_str(), little_endian, word);
 }

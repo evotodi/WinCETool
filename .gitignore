@@ -15,3 +15,4 @@ CMakeUserPresets.json
 /fileH.bin
 /fileL.bin
 /cmake-build-*/
+/combined.bin
