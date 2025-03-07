@@ -16,3 +16,5 @@ CMakeUserPresets.json
 /fileL.bin
 /cmake-build-*/
 /combined.bin
+/combined.bin.strings
+/extracted/
