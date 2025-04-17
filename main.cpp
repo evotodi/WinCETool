@@ -1,17 +1,84 @@
+#include "main.h"
+
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <iostream>
+#include "spdlog/spdlog.h"
 #include <lyra/lyra.hpp>
+#include <locale>
 
 using namespace std;
 
-/**
- * @param filename path to file
- * @param data_out 
- * @return file size
- */
-uint32_t read_file(const char *filename, uint8_t **data_out) {
+/* CLI Command: Interleave */
+commandInterleave::commandInterleave(lyra::cli &cli) {
+    cli.add_argument(
+        lyra::command("interleave",
+                      [this](const lyra::group &g) {
+                          this->doCommand(g);
+                      })
+        .help("Combine two files into one by interleaving bytes from both files")
+        .add_argument(lyra::help(showHelp))
+        .add_argument(lyra::opt(verbose).name("-v").name("--verbose").optional().help("Verbose output"))
+        .add_argument(lyra::opt(bigEndian).name("-b").name("--big-endian").help("Use big endian. Same a swapping fileL and fileH."))
+        .add_argument(lyra::opt(word, "size").name("-w").name("--word").help("Word size to build. 16, 32, 64"))
+        .add_argument(lyra::arg(fileL, "file low").required().help("File Low Path"))
+        .add_argument(lyra::arg(fileH, "file high").required().help("File High Path"))
+        .add_argument(lyra::arg(output, "output file").required().help("Output File Path"))
+    );
+}
+
+int commandInterleave::doCommand(const lyra::group &g) {
+    if (showHelp) {
+        std::cout << g;
+
+        return 0;
+    }
+
+    littleEndian = !bigEndian;
+
+    if (verbose) {
+        spdlog::set_level(spdlog::level::debug);
+    }
+
+    spdlog::debug("File Low Path = {}", fileL);
+    spdlog::debug("File High Path = {}", fileH);
+    spdlog::debug("Output File Path = {}", output);
+    spdlog::debug("Use Little Endian = {}", (littleEndian ? "true" : "false"));
+
+    return combineStreams(fileL.c_str(), fileH.c_str(), output.c_str(), littleEndian, word);
+}
+
+/* CLI Command: Info */
+
+commandInformation::commandInformation(lyra::cli &cli) {
+    cli.add_argument(
+        lyra::command("info",
+                      [this](const lyra::group &g) {
+                          this->doCommand(g);
+                      })
+        .help("Get information about the file")
+        .add_argument(lyra::opt(verbose).name("-v").name("--verbose").optional().help("Verbose output"))
+        .add_argument(lyra::arg(fileIn, "file").required().help("Input File Path"))
+    );
+};
+
+int commandInformation::doCommand(const lyra::group &g) {
+    if (showHelp) {
+        std::cout << g;
+        return 0;
+    }
+
+    if (verbose) {
+        spdlog::set_level(spdlog::level::debug);
+    }
+
+    return collectFileInfo(fileIn.c_str());
+}
+
+/* File Operations */
+
+uint32_t readFile(const char *filename, uint8_t **data_out) {
     FILE *file = fopen(filename, "rb");
     fseek(file, 0, SEEK_END);
     uint32_t size = ftell(file);
@@ -24,55 +91,40 @@ uint32_t read_file(const char *filename, uint8_t **data_out) {
     return size;
 }
 
-/**
- * WordSize Examples:
- * word_size = 16: 8 bytes from file 1 and 8 bytes from file 2
- * word_size = 32: 16 bytes from file 1 and 16 bytes from file 2
- * word_size = 64: 32 bytes from file 1 and 32 bytes from file 2
- *
- * Little Endian true uses fileH and file 1
- *
- * @param fileL path to file low
- * @param fileH path to file high
- * @param output_file path to output file
- * @param little_endian use little endian encoding
- * @param word_size word size as 16, 32, or 64. Default 16.
- * @return 
- */
-int combine_streams(const char *fileL, const char *fileH, const char *output_file, bool little_endian, uint8_t word_size = 16) {
+int combineStreams(const char *fileL, const char *fileH, const char *output_file, bool little_endian, uint8_t word_size) {
     if (word_size != 16 && word_size != 32 && word_size != 64) {
-        cout << "Error: Invalid word size. Exiting!" << endl;
+        spdlog::error("Error: Invalid word size. Exiting!");
         return 1; // invalid word size
     }
 
     uint8_t bytesPerFile;
     if (word_size == 16) {
-        cout << "Word size = 16" << endl;
+        spdlog::debug("Word size = 16");
         bytesPerFile = 1;
     } else if (word_size == 32) {
-        cout << "Word size = 32" << endl;
+        spdlog::debug("Word size = 32");
         bytesPerFile = 2;
     } else {
-        cout << "Word size = 64" << endl;
+        spdlog::debug("Word size = 64");
         bytesPerFile = 4;
     }
 
     uint8_t *data[2];
     uint32_t fsize[2];
-    cout << "Reading file " << fileL << endl;
-    fsize[0] = read_file(fileL, &data[0]);
-    cout << "File Low Size = " << fsize[0] << endl;
-    cout << "Reading file " << fileH << endl;
-    fsize[1] = read_file(fileH, &data[1]);
-    cout << "File High Size = " << fsize[1] << endl;
+    spdlog::debug("Reading file {}", fileL);
+    fsize[0] = readFile(fileL, &data[0]);
+    spdlog::info("File Low Size = {:L}", fsize[0]);
+    spdlog::debug("Reading file {}", fileH);
+    fsize[1] = readFile(fileH, &data[1]);
+    spdlog::info("File High Size = {:L}", fsize[1]);
 
     if (fsize[0] != fsize[1]) {
-        cout << "Error: File sizes are not the same. Exiting!" << endl;
+        spdlog::error("Error: File sizes are not the same. Exiting!");
         return 2; // file sizes are mismatching
     }
 
     uint32_t size = fsize[0];
-    cout << "Output file size = " << size << endl;
+    spdlog::info("Output file size = {:L}", fsize[0] + fsize[1]);
 
     // Set endianness
     uint8_t *dataL = (little_endian ? data[0] : data[1]);
@@ -96,47 +148,45 @@ int combine_streams(const char *fileL, const char *fileH, const char *output_fil
 
     free(data[0]);
     free(data[1]);
+    spdlog::info("Done!");
     return 0;
 }
 
+int collectFileInfo(const char *fileIn) {
+    spdlog::critical("WORK IN PROGRESS");
+    return 0;
+
+    spdlog::debug("Reading file {}", fileIn);
+    return 0;
+}
+
+/* Main */
+
 int main(int argc, char *argv[]) {
-    std::string fileL;
-    std::string fileH;
-    std::string output;
-    bool little_endian = true;
-    bool big_endian = false;
-    bool help = false;
-    int word = 16;
+    std::locale::global(std::locale("en_US.UTF-8"));
+    spdlog::set_pattern("%v");
+    spdlog::set_level(spdlog::level::info);
+
+
     auto cli = lyra::cli();
+    bool showHelp = false;
 
-    cli.add_argument(lyra::help(help).description("Combine two files into one by interleaving bytes from both files"));
-    cli.add_argument(lyra::opt(big_endian).name("-b").name("--big-endian").help("Use big endian. Same a swapping fileL and fileH."));
-    cli.add_argument(lyra::opt(word, "size").name("-w").name("--word").help("Word size to build. 16, 32, 64"));
-    cli.add_argument(lyra::arg(fileL, "file low").required().help("File Low Path"));
-    cli.add_argument(lyra::arg(fileH, "file high").required().help("File High Path"));
-    cli.add_argument(lyra::arg(output, "output file").required().help("Output File Path"));
 
+    cli.add_argument(lyra::help(showHelp).description("Win CE Flash Tool"));
+    commandInterleave cmdInterleave{cli};
+    commandInformation cmdInfo{cli};
     auto result = cli.parse({argc, argv});
 
-    if (!result) {
-        std::cout << cli << endl;
-        std::cerr << "Error in command line: " << result.message() << std::endl;
-
-        return 1;
-    }
-    if (help || !result) {
+    if (showHelp || argc == 1) {
         std::cout << cli << endl;
 
         return 0;
     }
 
-    little_endian = !big_endian;
+    if (!result) {
+        std::cout << cli << endl;
+        std::cerr << "Error in command line: " << result.message() << std::endl;
+    }
 
-    cout << "File Low Path = " << fileL << endl;
-    cout << "File High Path = " << fileH << endl;
-    cout << "Output File Path = " << output << endl;
-    cout << "Use Little Endian = " << (little_endian ? "true" : "false") << endl;
-    cout << "Word Size = " << (int) word << endl;
-
-    return combine_streams(fileL.c_str(), fileH.c_str(), output.c_str(), little_endian, word);
+    return result ? 0 : 1;
 }
