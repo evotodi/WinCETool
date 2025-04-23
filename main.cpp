@@ -4,9 +4,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <iostream>
+#include <fstream>
+#include <string>
+#include <regex>
+#include <vector>
 #include "spdlog/spdlog.h"
 #include <lyra/lyra.hpp>
 #include <locale>
+#include <filesystem>
 
 using namespace std;
 
@@ -74,6 +79,20 @@ int commandInformation::doCommand(const lyra::group &g) {
     }
 
     return collectFileInfo(fileIn.c_str());
+}
+
+/* Helper Functions */
+
+long hexStringToLong(const std::string& hexString) {
+    try {
+        return std::stol(hexString, nullptr, 16);
+    } catch (const std::invalid_argument& ia) {
+        spdlog::error("Invalid argument: {}", ia.what());
+        exit(1);
+    } catch (const std::out_of_range& oor) {
+        spdlog::error("Out of range error: ", oor.what());
+        exit(1);
+    }
 }
 
 /* File Operations */
@@ -153,10 +172,71 @@ int combineStreams(const char *fileL, const char *fileH, const char *output_file
 }
 
 int collectFileInfo(const char *fileIn) {
-    spdlog::critical("WORK IN PROGRESS");
-    return 0;
+    spdlog::debug("Using file {}", fileIn);
 
-    spdlog::debug("Reading file {}", fileIn);
+    filesystem::path path(fileIn);
+    spdlog::info("File Size = {:L}", filesystem::file_size(path));
+
+    ifstream file(path.string(), ios::binary);
+    if (!file.is_open()) {
+        spdlog::error("Error: Could not open file. Exiting!");
+        return 1; // file not found
+    }
+
+    spdlog::info("Reading in file...");
+
+    // Read the entire file into a string
+    string content((istreambuf_iterator<char>(file)), istreambuf_iterator<char>());
+    file.close();
+
+    spdlog::info("Processing file...");
+
+    // Pattern BO0OFF\n
+    regex patternBoof("\\x42\\x30\\x30\\x30\\x46\\x46\\x0A");
+
+    // Search for the B000FF pattern
+    smatch match;
+    if (regex_search(content, match, patternBoof)) {
+        spdlog::info("Found SYNC bytes B000FF");
+        spdlog::debug("Found at offset: dec: {} hex: {}", match.position(), fmt::format("{:#x}", match.position()));
+        spdlog::debug("Found length: {}", match.length());
+    } else {
+        spdlog::info("SYNC pattern not found. Exiting");
+        exit(1);
+    }
+
+    // Get the Least address
+    string leastAddress = content.substr(match.position() + match.length(), 4);
+    stringstream leastAddressHex;
+    leastAddressHex << "0x";
+    for (int i = 0; i < leastAddress.length(); i++) {
+        leastAddressHex << fmt::format("{:02x}", leastAddress[i]);
+    }
+    long leastAddressLong = hexStringToLong(leastAddressHex.str());
+    spdlog::debug("Least Address dec: {} hex: {}", leastAddressLong, leastAddressHex.str());
+
+
+    // Get the Greatest address
+    string greatestAddress = content.substr(match.position() + match.length() + 4, 4);
+    stringstream greatestAddressHex;
+    greatestAddressHex << "0x";
+    for (int i = 0; i < greatestAddress.length(); i++) {
+        greatestAddressHex << fmt::format("{:02x}", greatestAddress[i]);
+    }
+    long greatestAddressLong = hexStringToLong(greatestAddressHex.str());
+    spdlog::debug("Greatest Address dec: {} hex: {}", greatestAddressLong, greatestAddressHex.str());
+
+    // Calculate end address
+    long endAddress = greatestAddressLong - leastAddressLong;
+    spdlog::debug("End Address dec: {} hex: {}", endAddress, fmt::format("{:#x}", endAddress));
+
+    // string subString = content.substr(match.position(), match.position() + 100);
+    // spdlog::info("File Content = {}", subString);
+    // for (int i = 0; i < subString.length(); i++) {
+    //     std::cout << "0x" << std::hex << std::setw(2) << std::setfill('0') << (int) subString[i] << " ";
+    // }
+
+
     return 0;
 }
 

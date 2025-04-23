@@ -38,4 +38,6 @@ int combineStreams(const char *fileL, const char *fileH, const char *output_file
 
 int collectFileInfo(const char *fileIn);
 
+long hexStringToLong(const std::string& hexString);
+
 #endif //MAIN_H
