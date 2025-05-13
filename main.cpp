@@ -64,6 +64,8 @@ commandInformation::commandInformation(lyra::cli &cli) {
                       })
         .help("Get information about the file")
         .add_argument(lyra::opt(verbose).name("-v").name("--verbose").optional().help("Verbose output"))
+        .add_argument(lyra::opt(baseAddressStr, "hex string").name("-b").name("--base").optional().help("Base Address in hex"))
+        .add_argument(lyra::opt(bigEndian).name("-b").name("--big-endian").help("Use big endian"))
         .add_argument(lyra::arg(fileIn, "file").required().help("Input File Path"))
     );
 };
@@ -74,11 +76,13 @@ int commandInformation::doCommand(const lyra::group &g) {
         return 0;
     }
 
+    littleEndian = !bigEndian;
+
     if (verbose) {
         spdlog::set_level(spdlog::level::debug);
     }
 
-    return collectFileInfo(fileIn.c_str());
+    return collectFileInfo(fileIn.c_str(), baseAddressStr, littleEndian);
 }
 
 /* Helper Functions */
@@ -110,17 +114,17 @@ uint32_t readFile(const char *filename, uint8_t **data_out) {
     return size;
 }
 
-int combineStreams(const char *fileL, const char *fileH, const char *output_file, bool little_endian, uint8_t word_size) {
-    if (word_size != 16 && word_size != 32 && word_size != 64) {
+int combineStreams(const char *fileL, const char *fileH, const char *output_file, bool littleEndian, uint8_t wordSize) {
+    if (wordSize != 16 && wordSize != 32 && wordSize != 64) {
         spdlog::error("Error: Invalid word size. Exiting!");
         return 1; // invalid word size
     }
 
     uint8_t bytesPerFile;
-    if (word_size == 16) {
+    if (wordSize == 16) {
         spdlog::debug("Word size = 16");
         bytesPerFile = 1;
-    } else if (word_size == 32) {
+    } else if (wordSize == 32) {
         spdlog::debug("Word size = 32");
         bytesPerFile = 2;
     } else {
@@ -146,8 +150,8 @@ int combineStreams(const char *fileL, const char *fileH, const char *output_file
     spdlog::info("Output file size = {:L}", fsize[0] + fsize[1]);
 
     // Set endianness
-    uint8_t *dataL = (little_endian ? data[0] : data[1]);
-    uint8_t *dataH = (little_endian ? data[1] : data[0]);
+    uint8_t *dataL = (littleEndian ? data[0] : data[1]);
+    uint8_t *dataH = (littleEndian ? data[1] : data[0]);
 
     FILE *out_file = fopen(output_file, "wb");
     uint8_t data_out;
@@ -171,8 +175,14 @@ int combineStreams(const char *fileL, const char *fileH, const char *output_file
     return 0;
 }
 
-int collectFileInfo(const char *fileIn) {
-    spdlog::debug("Using file {}", fileIn);
+int collectFileInfo(const char *fileIn, string baseAddressStr, bool littleEndian) {
+    spdlog::info("Using file {}", fileIn);
+    spdlog::debug("Using base address: {}", baseAddressStr);
+    spdlog::debug("Use Little Endian = {}", (littleEndian ? "true" : "false"));
+
+    // Convert base address string to long
+    long baseAddress = hexStringToLong(baseAddressStr);
+    spdlog::debug("Base Address dec: {} hex: {}", baseAddress, baseAddressStr);
 
     filesystem::path path(fileIn);
     spdlog::info("File Size = {:L}", filesystem::file_size(path));
@@ -205,36 +215,48 @@ int collectFileInfo(const char *fileIn) {
         exit(1);
     }
 
+    stringstream tempHexStr;
+
     // Get the Least address
     string leastAddress = content.substr(match.position() + match.length(), 4);
-    stringstream leastAddressHex;
-    leastAddressHex << "0x";
-    for (int i = 0; i < leastAddress.length(); i++) {
-        leastAddressHex << fmt::format("{:02x}", leastAddress[i]);
+    tempHexStr.str("0x"); // Reset stream
+    tempHexStr.clear(); // Clear error flags
+    if (littleEndian) {
+        for (int i = leastAddress.length() - 1; i >= 0 ; i--) {
+            tempHexStr << fmt::format("{:02x}", leastAddress[i]);
+        }
+    } else {
+        for (int i = 0; i < leastAddress.length() ; i++) {
+            tempHexStr << fmt::format("{:02x}", leastAddress[i]);
+        }
     }
-    long leastAddressLong = hexStringToLong(leastAddressHex.str());
-    spdlog::debug("Least Address dec: {} hex: {}", leastAddressLong, leastAddressHex.str());
+
+    long leastAddressLong = hexStringToLong(tempHexStr.str());
+    spdlog::debug("Least Address Real dec: {} hex: {:#08x}", leastAddressLong, leastAddressLong);
+    leastAddressLong = leastAddressLong - baseAddress;
+    spdlog::debug("Least Address dec: {} hex: {:#08x}", leastAddressLong, leastAddressLong);
 
 
     // Get the Greatest address
     string greatestAddress = content.substr(match.position() + match.length() + 4, 4);
-    stringstream greatestAddressHex;
-    greatestAddressHex << "0x";
-    for (int i = 0; i < greatestAddress.length(); i++) {
-        greatestAddressHex << fmt::format("{:02x}", greatestAddress[i]);
+    tempHexStr.str("0x"); // Reset stream
+    tempHexStr.clear(); // Clear error flags
+    if (littleEndian) {
+        for (int i = greatestAddress.length() - 1; i >= 0 ; i--) {
+            tempHexStr << fmt::format("{:02x}", greatestAddress[i]);
+        }
+    } else {
+        for (int i = 0; i < greatestAddress.length() ; i++) {
+            tempHexStr << fmt::format("{:02x}", greatestAddress[i]);
+        }
     }
-    long greatestAddressLong = hexStringToLong(greatestAddressHex.str());
-    spdlog::debug("Greatest Address dec: {} hex: {}", greatestAddressLong, greatestAddressHex.str());
+
+    long greatestAddressLong = hexStringToLong(tempHexStr.str());
+    spdlog::debug("Greatest Address dec: {} hex: {:#02x}", greatestAddressLong, greatestAddressLong);
 
     // Calculate end address
     long endAddress = greatestAddressLong - leastAddressLong;
     spdlog::debug("End Address dec: {} hex: {}", endAddress, fmt::format("{:#x}", endAddress));
-
-    // string subString = content.substr(match.position(), match.position() + 100);
-    // spdlog::info("File Content = {}", subString);
-    // for (int i = 0; i < subString.length(); i++) {
-    //     std::cout << "0x" << std::hex << std::setw(2) << std::setfill('0') << (int) subString[i] << " ";
-    // }
 
 
     return 0;

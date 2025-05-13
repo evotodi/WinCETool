@@ -21,6 +21,9 @@ struct commandInterleave {
 struct commandInformation {
     bool showHelp = false;
     bool verbose = false;
+    bool littleEndian = true;
+    bool bigEndian = false;
+    std::string baseAddressStr = "0x0";
     std::string fileIn;
 
     commandInformation(lyra::cli &cli);
@@ -34,9 +37,9 @@ struct fileInfo {
 
 uint32_t readFile(const char *filename, uint8_t **data_out);
 
-int combineStreams(const char *fileL, const char *fileH, const char *output_file, bool little_endian, uint8_t word_size);
+int combineStreams(const char *fileL, const char *fileH, const char *output_file, bool littleEndian, uint8_t wordSize);
 
-int collectFileInfo(const char *fileIn);
+int collectFileInfo(const char *fileIn, std::string baseAddressStr, bool littleEndian);
 
 long hexStringToLong(const std::string& hexString);
 
