@@ -265,14 +265,15 @@ int collectFileInfo(const char *fileIn, string baseAddressStr, bool littleEndian
 /* Main */
 
 int main(int argc, char *argv[]) {
+#ifndef _WIN32
     std::locale::global(std::locale("en_US.UTF-8"));
+#endif
+
     spdlog::set_pattern("%v");
     spdlog::set_level(spdlog::level::info);
 
-
     auto cli = lyra::cli();
     bool showHelp = false;
-
 
     cli.add_argument(lyra::help(showHelp).description("Win CE Flash Tool"));
     commandInterleave cmdInterleave{cli};

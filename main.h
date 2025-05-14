@@ -32,7 +32,7 @@ struct commandInformation {
 };
 
 struct fileInfo {
-    u_int64_t fileSize;
+    uint64_t fileSize;
 };
 
 uint32_t readFile(const char *filename, uint8_t **data_out);
